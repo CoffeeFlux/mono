@@ -5546,6 +5546,7 @@ ves_icall_System_Runtime_InteropServices_Marshal_GetArrayElementSize (MonoReflec
 	return mono_class_array_element_size (eklass);
 }
 
+#ifdef ENABLE_NETCORE
 MonoBoolean
 ves_icall_System_Runtime_InteropServices_Marshal_IsPinnableType (MonoReflectionTypeHandle type_h, MonoError *error)
 {
@@ -5559,6 +5560,7 @@ ves_icall_System_Runtime_InteropServices_Marshal_IsPinnableType (MonoReflectionT
 	} else
 		return m_class_is_blittable (klass);
 }
+#endif
 
 /**
  * mono_marshal_is_loading_type_info:
