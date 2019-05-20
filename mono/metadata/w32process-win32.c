@@ -99,7 +99,10 @@ ves_icall_System_Diagnostics_Process_ShellExecuteEx_internal (MonoW32ProcessStar
 	else
 		shellex.fMask = (gulong)(shellex.fMask | SEE_MASK_FLAG_NO_UI);
 
+	MONO_ENTER_GC_SAFE;
 	ret = ShellExecuteEx (&shellex);
+	MONO_EXIT_GC_SAFE;
+	
 	if (ret == FALSE) {
 		process_info->pid = -GetLastError ();
 	} else {
