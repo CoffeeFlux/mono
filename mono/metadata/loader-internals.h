@@ -9,6 +9,7 @@
 #include <mono/metadata/object-forward.h>
 #include <mono/utils/mono-forward.h>
 #include <mono/utils/mono-error.h>
+#include <mono/utils/mono-coop-mutex.h>
 
 typedef struct _MonoLoadedImages MonoLoadedImages;
 typedef struct _MonoAssemblyLoadContext MonoAssemblyLoadContext;
@@ -18,10 +19,8 @@ typedef struct _MonoAssemblyLoadContext MonoAssemblyLoadContext;
 struct _MonoAssemblyLoadContext {
 	MonoDomain *domain;
 	MonoLoadedImages *loaded_images;
-#if 0
 	GSList *loaded_assemblies;
 	MonoCoopMutex assemblies_lock;
-#endif
 };
 #endif /* ENABLE_NETCORE */
 
@@ -37,6 +36,12 @@ mono_alc_init (MonoAssemblyLoadContext *alc, MonoDomain *domain);
 
 void
 mono_alc_cleanup (MonoAssemblyLoadContext *alc);
+
+void
+mono_alc_assemblies_lock (MonoAssemblyLoadContext *alc);
+
+void
+mono_alc_assemblies_unlock (MonoAssemblyLoadContext *alc);
 
 static inline MonoDomain *
 mono_alc_domain (MonoAssemblyLoadContext *alc)
