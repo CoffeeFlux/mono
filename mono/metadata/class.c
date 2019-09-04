@@ -3126,27 +3126,55 @@ mono_class_from_name_checked_aux (MonoImage *image, const char* name_space, cons
 	mono_image_init_name_cache (image);
 	mono_image_lock (image);
 
-	if (case_sensitive) {
-		nspace_table = (GHashTable *)g_hash_table_lookup (image->name_cache, name_space);
+	// For all of these lookups, we first try for an exact match using the cache and,
+	// should that fail, manually look through the tables. The reason we can't use the cache
+	// for the case-insensitive lookup is because unfortunately the order matters when searching
+	// the namespace table and that isn't preserved in a hashmap.
+	nspace_table = (GHashTable *)g_hash_table_lookup (image->name_cache, name_space);
+	if (nspace_table)
+		token = GPOINTER_TO_UINT (g_hash_table_lookup (nspace_table, name));
 
-		if (nspace_table)
-			token = GPOINTER_TO_UINT (g_hash_table_lookup (nspace_table, name));
-	} else {
-		FindUserData user_data;
-		user_data.key = name_space;
-		user_data.value = NULL;
+	if (!token && !case_sensitive) {
+		// Fall back to the slow, sad lookup, starting with the typedef table.
+		MonoTableInfo *typedef_table = &image->tables [MONO_TABLE_TYPEDEF];
+		guint32 typedef_cols [MONO_TYPEDEF_SIZE];
+		const char *n;
+		const char *nspace;
 
-		g_hash_table_foreach (image->name_cache, find_nocase, &user_data);
+		for (i = 1; i <= typedef_table->rows; ++i) {
+			mono_metadata_decode_row (typedef_table, i - 1, typedef_cols, MONO_TYPEDEF_SIZE);
 
-		if (user_data.value) {
-			nspace_table = (GHashTable*)user_data.value;
-			user_data.key = name;
-			user_data.value = NULL;
+			guint32 visib = typedef_cols [MONO_TYPEDEF_FLAGS] & TYPE_ATTRIBUTE_VISIBILITY_MASK;
+			// Nested types are accessed from the nesting name. We use the fact that nested types
+			// use different visibility flags than toplevel types, thus avoiding the need to
+			// grovel through the NESTED_TYPE table.
+			if (visib >= TYPE_ATTRIBUTE_NESTED_PUBLIC && visib <= TYPE_ATTRIBUTE_NESTED_FAM_OR_ASSEM)
+				continue;
 
-			g_hash_table_foreach (nspace_table, find_nocase, &user_data);
+			n = mono_metadata_string_heap (image, typedef_cols [MONO_TYPEDEF_NAME]);
+			nspace = mono_metadata_string_heap (image, typedef_cols	[MONO_TYPEDEF_NAMESPACE]);
+			if (mono_utf8_strcasecmp (n, name) == 0 && mono_utf8_strcasecmp (nspace, name_space) == 0)
+				token = i;
+		}
 
-			if (user_data.value)
-				token = GPOINTER_TO_UINT (user_data.value);
+		// Next up, the exported types table
+		if (!token) {
+			MonoTableInfo *exp_type_table = &image->tables [MONO_TABLE_EXPORTEDTYPE];
+			guint32 exp_type_cols [MONO_EXP_TYPE_SIZE];
+
+			for (i = 0; i < exp_type_table->rows; ++i) {
+				mono_metadata_decode_row (exp_type_table, i, exp_type_cols, MONO_EXP_TYPE_SIZE);
+
+				guint32 impl = exp_type_cols [MONO_EXP_TYPE_IMPLEMENTATION];
+				if ((impl && MONO_IMPLEMENTATION_MASK) == MONO_IMPLEMENTATION_EXP_TYPE)
+					// Nested type
+					continue;
+
+				n = mono_metadata_string_heap (image, exp_type_cols [MONO_EXP_TYPE_NAME]);
+				nspace = mono_metadata_string_heap (image, exp_type_cols [MONO_EXP_TYPE_NAMESPACE]);
+				if (mono_utf8_strcasecmp (n, name) == 0 && mono_utf8_strcasecmp (nspace, name_space) == 0)
+					token = mono_metadata_make_token (MONO_TABLE_EXPORTEDTYPE, i + 1);
+			}
 		}
 	}
 
